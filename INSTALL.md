@@ -27,22 +27,48 @@
 **方式 B：下载预编译件** —— GitHub 仓库 `release/` 目录或
 Releases 页面的 `libeu4cjk.so`（约 380 KB）。
 
-> 推荐自行编译：可以校验源码、自行跟进游戏版本更新，且预编译件
-> 无法保证与你环境完全一致。两种方式的产物完全等效。
+> 推荐自行编译：预编译件无法保证与你环境完全一致。两种方式的产物完全等效。
 
 ---
 
 ## 第 2 步：订阅中文 mod（必需）
 
-本补丁只负责让引擎"能显示"双字节文字；中文文本与扩容字体由
-创意工坊的中文多字节 mod 提供。在 Steam 中订阅以下两个条目：
+本补丁只负责让引擎"能显示"双字节文字；中文文本与扩容字体由中文多字节
+mod 提供（mod 名以 `eu4_chinese` / `eu4_chinese_sup` 为准，版本需与
+游戏 v1.37.5 配套）。获取方式二选一：
+
+**方式 A（推荐）：Steam 创意工坊订阅**（自动更新，链接如下）
 
 | mod | 创意工坊链接 |
 |---|---|
 | eu4_chinese（主汉化） | https://steamcommunity.com/sharedfiles/filedetails/?id=2976470733 |
 | eu4_chinese_sup（补充） | https://steamcommunity.com/sharedfiles/filedetails/?id=1999055990 |
 
-订阅后首次启动 EU4 时，Paradox Launcher 会提示管理 mod：
+**方式 B：第三方网站下载**（如 52pcgame 等汉化站的 mod 下载区）
+
+从第三方网站下载的中文 mod 文件同样可用，手动放入 Paradox 用户目录
+的 `mod/` 文件夹：
+
+```bash
+# Flatpak 版 Steam：
+~/.var/app/com.valvesoftware.Steam/.local/share/Paradox Interactive/Europa Universalis IV/mod/
+# 原生 Steam：
+~/.local/share/Paradox Interactive/Europa Universalis IV/mod/
+```
+
+放入后的目录结构应类似（目录 + 同名 `.mod` 描述文件成对出现）：
+
+```
+mod/
+├── eu4_chinese/
+├── eu4_chinese.mod
+├── eu4_chinese_sup/
+└── eu4_chinese_sup.mod
+```
+
+> 第三方下载请自行确认 mod 版本与游戏 v1.37.5 配套。
+
+订阅或放置后，首次启动 EU4 时在 Paradox Launcher 中启用：
 
 1. 在 launcher 中打开 **Playsets（游戏配置）** 页
 2. 新建一个 playset（如 `chinese`）

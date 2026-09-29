@@ -5,6 +5,24 @@
  Europa Universalis IV（Linux 原生版）的中日韩文字显示补丁。
 由 Windows 平台的 [EU4dll](https://github.com/matanki-saito/EU4dll) 移植而来。
 
+> **关于本移植**：从 Windows DLL 到 Linux 的代码、测试与文档全部由 **AI** 完成，
+> 经人工逐项验收。这是第一个版本，难免存在 bug——遇到问题请到
+> [Issues](https://github.com/d2h99/eu4cjk/issues) 报告并附上日志（位置见
+> [安装教程](INSTALL.md#第-5-步验证安装)），这对接续修复至关重要。
+>
+> **为什么用 Linux 玩 EU4**：EU4 有 Linux 原生客户端，无需 Windows 上的
+> 兼容层/虚拟机，系统后台开销也更低——同等硬件下**潜在**更流畅，
+> 尤其游戏后期大量国家/单位结算时的帧率稳定性。（注：优势来自社区普遍
+> 经验与原理推断，本项目未做系统性对比测试；本补丁稳态开销接近零，
+> 不会抵消这一优势。）
+
+## 致谢
+
+- [EU4dll](https://github.com/matanki-saito/EU4dll)（☆ (ゝω・)v，MIT）——
+  Windows 平台的原项目：转义协议、字体扩容方案与引擎逆向成果是本移植的基础
+- 中文多字节 mod 的作者们（文本预转义 + 扩容位图字体）
+- Paradox Interactive 的 Europa Universalis IV
+
 [安装教程](INSTALL.md) · [从源码构建](BUILD.md)（推荐） · [故障排查](INSTALL.md#故障排查)
 
 ## 这是什么
@@ -50,13 +68,6 @@ EU4 的 Linux 原生版无法显示中文等双字节文字：中文 mod 的文�
 **推荐自行编译**（见 [BUILD.md](BUILD.md)，一条 cmake 命令即可）；
 仓库 `release/` 与 GitHub Releases 也提供预编译产物作为便利。
 
-## 致谢
-
-- [EU4dll](https://github.com/matanki-saito/EU4dll)（☆ (ゝω・)v，MIT）——
-  Windows 平台的原项目：转义协议、字体扩容方案与引擎逆向成果是本移植的基础
-- 中文多字节 mod 的作者们（文本预转义 + 扩容位图字体）
-- Paradox Interactive 的 Europa Universalis IV
-
 ## 许可
 
 [MIT](LICENSE)。本项目与 Paradox Interactive 无关联，非官方，仅为爱好者作品。
@@ -81,6 +92,14 @@ pre-escaped localization text and extended bitmap fonts shipped by community
 - Graceful degradation on game-version mismatch (never crashes)
 - Language-agnostic core (escape protocol identical to upstream EU4dll):
   Chinese verified, Japanese expected to work with the JP multibyte mod
+
+**About this port**: all code, tests and docs were produced by AI and
+accepted item-by-item by a human. First release — bugs are expected;
+please report them at the issue tracker with your log file. **Why play
+EU4 on Linux**: a native client without compatibility layers, lower OS
+overhead — potentially smoother late-game performance (community
+experience, not benchmarked by this project; the patch itself adds
+near-zero steady-state overhead).
 
 **Quick start**: subscribe to the Chinese multibyte mods (Workshop links in
 the [install guide](INSTALL.md)), drop the `.so` in place, set the Steam

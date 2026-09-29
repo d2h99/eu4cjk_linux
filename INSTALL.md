@@ -110,7 +110,7 @@ cp libeu4cjk.so ~/.local/share/eu4cjk/
 
 ## 第 4 步：配置 Steam 启动选项
 
-Steam → 库 → 右键 Europa Universalis IV → **属性** → **常规** →
+Steam → 库 → 右键 Europa Universalis IV → **属性** → **通用/常规** →
 **启动选项**，填入（注意替换 `<你的用户名>` 为实际用户名，即
 终端里 `echo $HOME` 显示的 `/home/` 之后部分）：
 

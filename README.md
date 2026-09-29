@@ -5,9 +5,9 @@
  Europa Universalis IV（Linux 原生版）的中日韩文字显示补丁。
 由 Windows 平台的 [EU4dll](https://github.com/matanki-saito/EU4dll) 移植而来。
 
-> **关于本移植**：从 Windows DLL 到 Linux 的代码、测试与文档全部由 **AI** 完成，
-> 经人工逐项验收。这是第一个版本，难免存在 bug——遇到问题请到
-> [Issues](https://github.com/d2h99/eu4cjk/issues) 报告并附上日志（位置见
+> **关于本移植**：从 Windows DLL 到 Linux 的代码、测试与文档全部由 **AI** 完成。
+> 这是第一个版本，难免存在 bug——遇到问题请到
+> [Issues](https://github.com/d2h99/eu4cjk_linux/issues) 报告并附上日志（位置见
 > [安装教程](INSTALL.md#第-5-步验证安装)），这对接续修复至关重要。
 >
 > **为什么用 Linux 玩 EU4**：EU4 有 Linux 原生客户端，无需 Windows 上的

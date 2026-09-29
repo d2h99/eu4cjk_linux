@@ -1,5 +1,8 @@
 #include "selftest_h.h"
 
+#include <cmath>
+#include <cstring>
+
 // CurveText stub tests: ct-tdiv (M4-P2) + ct-single (P2e).
 
 namespace eu4cjk_test {
@@ -48,19 +51,22 @@ void run_ct_tdiv_tests()
     check(run(1) == 1.0f, "ct-tdiv: r14d<2 -> unchanged");
 }
 
-// CurveText single-glyph sampler stub (M4-P2b/c/d/e): a name is a TRUE
-// single-glyph label iff its length-bounded string contains exactly ONE
-// escape marker (0x10..0x13; escapes are uniformly 3 bytes). The stub
-// scans data[3..len): any second escape -> replay untouched; scan
-// exhausted -> synthesize flat baseline around avg (xmm2): [-0x70].low =
-// avg.x - 4.9, [-0xe0] = avg.y, [-0xd8] = avg.x + 4.9, [-0x70].high =
-// avg.y, then replays mov -0xd8(%rbp),%r14. Tail junk past the length
-// (heap noise) and non-escape tail bytes (transform leftovers like '1'
-// 'r') must NOT block the fix; spaced/unspaced/0x12 multi-glyph and ASCII
-// strings must stay untouched.
+// CurveText single-glyph sampler stub (M4-P2 detection, M6-2 Win-parity
+// apply): a name is a TRUE single-glyph label iff its length-bounded
+// string contains exactly ONE escape marker (0x10..0x13; escapes are
+// uniformly 3 bytes). The stub scans data[3..len): any second escape ->
+// replay untouched; scan exhausted -> zero the lastMid slots [-0xd8] and
+// [-0x68] ([-0x70].high), reproducing MSVC's pre-loop zero-init of the
+// mid slots (eu4.exe 1.37.5 @ 0x140fd3976-89) which the clang build
+// lacks, then replays mov -0xd8(%rbp),%r14. The engine's own rotation
+// math then yields cos/sin = normalize(avg - 0), the slight per-label
+// tilt seen on Windows. Tail junk past the length (heap noise) and
+// non-escape tail bytes (transform leftovers like '1' 'r') must NOT
+// block the fix; spaced/unspaced/0x12 multi-glyph and ASCII strings must
+// stay untouched.
 void run_ct_single_tests()
 {
-    uint8_t bytes[192];
+    uint8_t bytes[384];
     const size_t len = eu4cjk::render::build_ct_single_stub(
         bytes, sizeof(bytes), reinterpret_cast<uintptr_t>(&ret_gadget));
     check(len > 0, "ct-single: builder length");
@@ -111,10 +117,12 @@ void run_ct_single_tests()
               *slotd(-0x70) == 333.0 && *slotd(-0x68) == 444.0, tag);
     };
     auto check_applied = [&]() {
-        check(*slotd(-0x70) == avgx - 4.9, "ct-single: [-0x70].low = avg.x - K");
-        check(*slotd(-0xe0) == avgy, "ct-single: [-0xe0] = avg.y");
-        check(*slotd(-0xd8) == avgx + 4.9, "ct-single: [-0xd8] = avg.x + K");
-        check(*slotd(-0x68) == avgy, "ct-single: [-0x70].high = avg.y");
+        const double len = std::sqrt(avgx * avgx + avgy * avgy);
+        const double ux = avgx / len, uy = avgy / len, K = 4.9;
+        check(*slotd(-0xd8) == avgx - ux * K, "ct-single: [-0xd8] = avg.x - ux*K");
+        check(*slotd(-0x68) == avgy - uy * K, "ct-single: [-0x68] = avg.y - uy*K");
+        check(*slotd(-0x70) == avgx + ux * K, "ct-single: [-0x70].low = avg.x + ux*K");
+        check(*slotd(-0xe0) == avgy + uy * K, "ct-single: [-0xe0] = avg.y + uy*K");
     };
     double d;
 
@@ -123,7 +131,10 @@ void run_ct_single_tests()
     uint64_t r14 = run(kan, 6);
     check_applied();
     std::memcpy(&d, &r14, 8);
-    check(d == avgx + 4.9, "ct-single: 坎 replay loads r14 = new [-0xd8]");
+    {
+        const double len = std::sqrt(avgx * avgx + avgy * avgy);
+        check(d == avgx - (avgx / len) * 4.9, "ct-single: 坎 replay loads r14 = new [-0xd8]");
+    }
 
     // 2. bare escape only (len 3)
     const uint8_t bare[] = {0x10, 0x4E, 0x57};

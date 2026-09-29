@@ -351,6 +351,7 @@ __attribute__((constructor)) static void eu4cjk_entry() {
     if (eu4cjk::version::detect() != eu4cjk::version::v1_37_0_0) return;
     install_crash_handler();
     eu4cjk::font::install_glyph_gate();
+    eu4cjk::font::install_texture_size_cap_fix();
     eu4cjk::render::install();
     eu4cjk::savefix::install();
     std::atexit(eu4cjk::savefix::log_stats);

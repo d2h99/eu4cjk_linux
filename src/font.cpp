@@ -306,6 +306,54 @@ bool install_glyph_gate()
     return true;
 }
 
+// CTextureHandler::LoadTexture (1.37.5 @ 0x22a7edb) silently discards any
+// texture file >= 16 MiB:
+//   22a7edb: 81 FB 00 00 00 01   cmp $0x1000000,%ebx   (ebx = file size)
+//   22a7ee1: 72 1B               jb  <read+parse>
+//   else: free buffer, return failure, NO log line.
+// The stock eu4_chinese map-font atlas (zh-hans-map.dds, DXT5 6400x7663,
+// 49,049,728 bytes) trips the cap: VFSOpenFile succeeds but
+// LoadTextureFromMemory is never reached, the font ends up without a
+// texture and every map label renders as a white box (live-verified
+// 2026-09-29 with glaudit + gdb: no GL upload for the map font while all
+// UI fonts < 16 MiB upload fine). Windows uses a different loader and
+// accepts the same file. Raise the cap to 64 MiB - a single-immediate
+// patch, same class as upstream Plugin64's fontSizeLimit /
+// charCodePointLimiter immediate patches. Pattern verified unique in the
+// 1.37.5 full disassembly.
+bool install_texture_size_cap_fix()
+{
+    if (const char* e = std::getenv("EU4CJK_TEXCAP")) {
+        if (std::strcmp(e, "off") == 0) {
+            log_line("[eu4cjk] texcap: disabled via EU4CJK_TEXCAP=off\n");
+            return false;
+        }
+    }
+    auto& bp = BytePattern::temp_instance();
+    bp.find_pattern("81 FB 00 00 00 01 72");
+    if (!bp.has_size(1, "texture loader 16 MiB file-size cap")) {
+        log_line("[eu4cjk] texcap: PATTERN NOT FOUND, not installed\n");
+        return false;
+    }
+    const uintptr_t imm = bp.get_first().address(2);   // the imm32 field
+    static const uint8_t kOrig[4] = {0x00, 0x00, 0x00, 0x01};  // 0x01000000 LE
+    static const uint8_t kNew[4]  = {0x00, 0x00, 0x00, 0x04};  // 0x04000000 = 64 MiB
+    uint8_t cur[4];
+    Injector::ReadMemoryRaw(
+        Injector::memory_pointer_raw(reinterpret_cast<void*>(imm)), cur, 4, true);
+    if (std::memcmp(cur, kOrig, 4) != 0) {
+        log_line("[eu4cjk] texcap: unexpected imm %02X %02X %02X %02X at 0x%lx,"
+                 " abort\n", cur[0], cur[1], cur[2], cur[3],
+                 static_cast<unsigned long>(imm));
+        return false;
+    }
+    Injector::WriteMemoryRaw(
+        Injector::memory_pointer_raw(reinterpret_cast<void*>(imm)), kNew, 4, true);
+    log_line("[eu4cjk] texcap: file-size cap 16 MiB -> 64 MiB @ 0x%lx\n",
+             static_cast<unsigned long>(imm));
+    return true;
+}
+
 // Escape combine (upstream decode constants, verbatim). Exposed for logging.
 uint32_t decode_id(const uint8_t* p)
 {

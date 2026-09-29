@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <initializer_list>
 #include <cstring>
+#include <cstdlib>
 
 namespace eu4cjk::render {
 
@@ -183,9 +184,71 @@ size_t build_ct_tdiv_stub(uint8_t* out, size_t cap, uintptr_t resume)
 // vertices) do not block the fix. Known limitation: a hypothetical
 // "CJK + real ASCII letters" mixed name would be treated as single (its
 // letters would squish); no such map label exists in CJK saves.
-size_t build_ct_single_stub(uint8_t* out, size_t cap, uintptr_t resume)
+// Detection prologue shared by both apply modes: rdx = string data,
+// rcx = len; jumps to `apply` when the bounded string holds exactly one
+// escape marker, else falls into `replay`. Replay jumps are rel32 (the
+// vec apply block pushes replay past rel8 range); the jle-to-apply stays
+// rel8. Fixed size 0x43; patch slots: jb rel32 @0x13, ja rel32 @0x1C,
+// jle rel8 @0x2C, jbe rel32 @0x37.
+size_t emit_single_detect(uint8_t* out, size_t cap)
 {
     size_t k = 0;
+    auto put = [&](std::initializer_list<uint8_t> bs) {
+        for (uint8_t b : bs) out[k++] = b;
+    };
+    if (cap < 0x43) return 0;
+    put({0x48, 0x8B, 0x85, 0xB8, 0xFE, 0xFF, 0xFF});  // mov -0x148(%rbp),%rax
+    put({0x48, 0x8B, 0x10});                          // mov (%rax),%rdx
+    put({0x48, 0x63, 0x48, 0x08});                    // movslq 0x8(%rax),%rcx
+    put({0x80, 0x3A, 0x10});                          // cmpb $0x10,(%rdx)
+    put({0x0F, 0x82, 0, 0, 0, 0});                    // jb  -> replay (patched)
+    put({0x80, 0x3A, 0x13});                          // cmpb $0x13,(%rdx)
+    put({0x0F, 0x87, 0, 0, 0, 0});                    // ja  -> replay (patched)
+    put({0x48, 0x8D, 0x52, 0x03});                    // lea 0x3(%rdx),%rdx
+    put({0x48, 0x83, 0xE9, 0x03});                    // sub $0x3,%rcx
+    put({0x48, 0x85, 0xC9});                          // loop: test %rcx,%rcx
+    put({0x7E, 0x00});                                // jle -> apply (patched)
+    put({0x80, 0x3A, 0x10});                          // cmpb $0x10,(%rdx)
+    put({0x72, 0x05});                                // jb  -> next
+    put({0x80, 0x3A, 0x13});                          // cmpb $0x13,(%rdx)
+    put({0x0F, 0x86, 0, 0, 0, 0});                    // jbe -> replay (patched)
+    put({0x48, 0xFF, 0xC2});                          // next: inc %rdx
+    put({0x48, 0xFF, 0xC9});                          // dec %rcx (/1, not C1=inc!)
+    put({0xEB, 0xE5});                                // jmp loop (0x28)
+    return k;
+}
+
+void patch_detect_jumps(uint8_t* out, size_t apply_at, size_t replay_at)
+{
+    auto rel32 = [&](size_t slot, size_t next, size_t target) {
+        const int32_t d = static_cast<int32_t>(target - next);
+        std::memcpy(out + slot, &d, 4);
+    };
+    rel32(0x13, 0x17, replay_at);                     // jb
+    rel32(0x1C, 0x20, replay_at);                     // ja
+    out[0x2C] = static_cast<uint8_t>(apply_at - 0x2D); // jle
+    rel32(0x37, 0x3B, replay_at);                     // jbe
+}
+
+// Win-parity apply (default, M6-3): on Windows (MSVC build) the single-
+// quad name's lastMid slots stay at their pre-loop zero, so the engine's
+// rotation math yields cos/sin = normalize(avg - 0) = the label's
+// position-vector direction (the slight per-label tilt of 明/康/藏 in the
+// Win reference), while glyph PLACEMENT on Win comes from the
+// Bresenham/t-step path and never reads those slots.
+// The clang Linux build reads the same slots for BOTH rotation and the
+// placement baseline segment (firstMid..lastMid): M6-2's plain zeroing
+// therefore flung single-glyph labels off-screen (invisible). Correct
+// Win-parity on Linux = feed slot values that reproduce both effects at
+// once: u = normalize(avg); firstMid = avg + u*K; lastMid = avg - u*K
+// (K = 4.9, half glyph advance). Then rotation = normalize(avg-lastMid)
+// = u (Win's tilt) and the placement segment is a 2K window centered on
+// avg (same regime as multi-glyph names). len==0 degenerates to the
+// legacy horizontal baseline (u = (-1,0)).
+size_t build_ct_single_stub(uint8_t* out, size_t cap, uintptr_t resume)
+{
+    size_t k = emit_single_detect(out, cap);
+    if (!k) return 0;
     auto put = [&](std::initializer_list<uint8_t> bs) {
         for (uint8_t b : bs) out[k++] = b;
     };
@@ -194,32 +257,109 @@ size_t build_ct_single_stub(uint8_t* out, size_t cap, uintptr_t resume)
         std::memcpy(out + k, &v, 8);
         k += 8;
     };
-    // layout (offsets): 00 mov rax(7) 07 mov rdx(3) 0A movslq rcx(4)
-    //   0E cmpb(3) 11 jb(2) 13 cmpb(3) 16 ja(2) 18 lea(4) 1C sub(4)
-    //   20 loop: test(3) 23 jle(2) 25 cmpb(3) 28 jb(2) 2A cmpb(3)
-    //   2D jbe(2) 2F next: inc(3) 32 dec(3) 35 jmp(2) 37 apply: movsd K(8)
-    //   3F movapd(4) 43 subsd(4) 47 movsd(5) 4C movapd(4) 50 unpckhpd(4)
-    //   54 movsd e0(8) 5C movsd 68(5) 61 movapd(4) 65 addsd K(8)
-    //   6D movsd d8(8) 75 replay(7) 7C r11(10) 86 jmp(3) 89 K(8) = 145
-    if (cap < 145) return 0;
-    put({0x48, 0x8B, 0x85, 0xB8, 0xFE, 0xFF, 0xFF});  // mov -0x148(%rbp),%rax
-    put({0x48, 0x8B, 0x10});                          // mov (%rax),%rdx
-    put({0x48, 0x63, 0x48, 0x08});                    // movslq 0x8(%rax),%rcx
-    put({0x80, 0x3A, 0x10});                          // cmpb $0x10,(%rdx)
-    put({0x72, 0x62});                                // jb  -> replay
-    put({0x80, 0x3A, 0x13});                          // cmpb $0x13,(%rdx)
-    put({0x77, 0x5D});                                // ja  -> replay
-    put({0x48, 0x8D, 0x52, 0x03});                    // lea 0x3(%rdx),%rdx
-    put({0x48, 0x83, 0xE9, 0x03});                    // sub $0x3,%rcx
-    put({0x48, 0x85, 0xC9});                          // loop: test %rcx,%rcx
-    put({0x7E, 0x12});                                // jle -> apply
-    put({0x80, 0x3A, 0x10});                          // cmpb $0x10,(%rdx)
-    put({0x72, 0x05});                                // jb  -> next
-    put({0x80, 0x3A, 0x13});                          // cmpb $0x13,(%rdx)
-    put({0x76, 0x46});                                // jbe -> replay (2nd escape)
-    put({0x48, 0xFF, 0xC2});                          // next: inc %rdx
-    put({0x48, 0xFF, 0xC9});                          // dec %rcx (/1, not C1=inc!)
-    put({0xEB, 0xE9});                                // jmp loop
+    // rip-relative displacements to the K constant appended at the end
+    size_t rip_slots[4] = {0, 0, 0, 0};
+    const size_t apply_at = k;
+    // xmm0 = avg.x, xmm1 = avg.y (xmm2 = avg pair, live across the hook)
+    put({0xF2, 0x0F, 0x10, 0xC2});                    // movsd %xmm2,%xmm0
+    put({0x66, 0x0F, 0x28, 0xCA});                    // movapd %xmm2,%xmm1
+    put({0x66, 0x0F, 0x15, 0xC9});                    // unpckhpd %xmm1,%xmm1
+    put({0x66, 0x48, 0x0F, 0x7E, 0xC0});              // movq %xmm0,%rax
+    put({0x50});                                      // push %rax
+    put({0x66, 0x48, 0x0F, 0x7E, 0xC8});              // movq %xmm1,%rax
+    put({0x50});                                      // push %rax
+    put({0xF2, 0x0F, 0x59, 0xC0});                    // mulsd %xmm0,%xmm0
+    put({0xF2, 0x0F, 0x59, 0xC9});                    // mulsd %xmm1,%xmm1
+    put({0xF2, 0x0F, 0x58, 0xC1});                    // addsd %xmm1,%xmm0
+    put({0x66, 0x0F, 0xEF, 0xDB});                    // pxor %xmm3,%xmm3
+    put({0x66, 0x0F, 0x2E, 0xC3});                    // ucomisd %xmm3,%xmm0
+    const size_t jbe_at = k;
+    put({0x76, 0x00});                                // jbe -> FALL (patched)
+    put({0xF2, 0x0F, 0x51, 0xC0});                    // sqrtsd %xmm0,%xmm0
+    put({0x58});                                      // pop %rax  (avg.y)
+    put({0x66, 0x48, 0x0F, 0x6E, 0xC8});              // movq %rax,%xmm1
+    put({0x58});                                      // pop %rax  (avg.x)
+    put({0x66, 0x48, 0x0F, 0x6E, 0xD8});              // movq %rax,%xmm3
+    put({0xF2, 0x0F, 0x5E, 0xC8});                    // divsd %xmm0,%xmm1 = uy
+    put({0xF2, 0x0F, 0x5E, 0xD8});                    // divsd %xmm0,%xmm3 = ux
+    rip_slots[0] = k + 4;
+    put({0xF2, 0x0F, 0x59, 0x1D, 0, 0, 0, 0});        // mulsd K(%rip),%xmm3 = uxK
+    rip_slots[1] = k + 4;
+    put({0xF2, 0x0F, 0x59, 0x0D, 0, 0, 0, 0});        // mulsd K(%rip),%xmm1 = uyK
+    // lastMidX = avg.x - uxK -> [-0xd8]
+    put({0xF2, 0x0F, 0x10, 0xC2});                    // movsd %xmm2,%xmm0
+    put({0xF2, 0x0F, 0x5C, 0xC3});                    // subsd %xmm3,%xmm0
+    put({0xF2, 0x0F, 0x11, 0x85, 0x28, 0xFF, 0xFF, 0xFF}); // movsd %xmm0,-0xd8(%rbp)
+    // lastMidY = avg.y - uyK -> [-0x68]
+    put({0x66, 0x0F, 0x28, 0xC2});                    // movapd %xmm2,%xmm0
+    put({0x66, 0x0F, 0x15, 0xC0});                    // unpckhpd %xmm0,%xmm0
+    put({0xF2, 0x0F, 0x5C, 0xC1});                    // subsd %xmm1,%xmm0
+    put({0xF2, 0x0F, 0x11, 0x45, 0x98});              // movsd %xmm0,-0x68(%rbp)
+    // firstMidX = avg.x + uxK -> [-0x70].low
+    put({0xF2, 0x0F, 0x10, 0xC2});                    // movsd %xmm2,%xmm0
+    put({0xF2, 0x0F, 0x58, 0xC3});                    // addsd %xmm3,%xmm0
+    put({0xF2, 0x0F, 0x11, 0x45, 0x90});              // movsd %xmm0,-0x70(%rbp)
+    // firstMidY = avg.y + uyK -> [-0xe0]
+    put({0x66, 0x0F, 0x28, 0xC2});                    // movapd %xmm2,%xmm0
+    put({0x66, 0x0F, 0x15, 0xC0});                    // unpckhpd %xmm0,%xmm0
+    put({0xF2, 0x0F, 0x58, 0xC1});                    // addsd %xmm1,%xmm0
+    put({0xF2, 0x0F, 0x11, 0x85, 0x20, 0xFF, 0xFF, 0xFF}); // movsd %xmm0,-0xe0(%rbp)
+    const size_t jmp_at = k;
+    put({0xEB, 0x00});                                // jmp -> REPLAY (patched)
+    // FALL: len==0 -> horizontal baseline (u = (-1,0))
+    const size_t fall_at = k;
+    put({0xF2, 0x0F, 0x10, 0xC2});                    // movsd %xmm2,%xmm0
+    rip_slots[2] = k + 4;
+    put({0xF2, 0x0F, 0x58, 0x05, 0, 0, 0, 0});        // addsd K(%rip),%xmm0
+    put({0xF2, 0x0F, 0x11, 0x85, 0x28, 0xFF, 0xFF, 0xFF}); // [-0xd8] = avg.x + K
+    put({0x66, 0x0F, 0x28, 0xC2});                    // movapd %xmm2,%xmm0
+    put({0x66, 0x0F, 0x15, 0xC0});                    // unpckhpd %xmm0,%xmm0
+    put({0xF2, 0x0F, 0x11, 0x45, 0x98});              // [-0x68] = avg.y
+    put({0xF2, 0x0F, 0x10, 0xC2});                    // movsd %xmm2,%xmm0
+    rip_slots[3] = k + 4;
+    put({0xF2, 0x0F, 0x5C, 0x05, 0, 0, 0, 0});        // subsd K(%rip),%xmm0
+    put({0xF2, 0x0F, 0x11, 0x45, 0x90});              // [-0x70] = avg.x - K
+    put({0x66, 0x0F, 0x28, 0xC2});                    // movapd %xmm2,%xmm0
+    put({0x66, 0x0F, 0x15, 0xC0});                    // unpckhpd %xmm0,%xmm0
+    put({0xF2, 0x0F, 0x11, 0x85, 0x20, 0xFF, 0xFF, 0xFF}); // [-0xe0] = avg.y
+    const size_t replay_at = k;
+    put({0x4C, 0x8B, 0xB5, 0x28, 0xFF, 0xFF, 0xFF});  // replay: mov -0xd8(%rbp),%r14
+    mov_r11(resume);
+    put({0x41, 0xFF, 0xE3});                          // jmp *%r11
+    if (cap < k + 8) return 0;
+    const double kval = 4.9;                          // K: half glyph advance
+    const size_t k_at = k;
+    std::memcpy(out + k, &kval, 8);
+    k += 8;
+    patch_detect_jumps(out, apply_at, replay_at);
+    out[jbe_at + 1] = static_cast<uint8_t>(fall_at - (jbe_at + 2));
+    out[jmp_at + 1] = static_cast<uint8_t>(replay_at - (jmp_at + 2));
+    auto fix_rip = [&](size_t slot, size_t insn_end) {
+        const int32_t d = static_cast<int32_t>(k_at - insn_end);
+        std::memcpy(out + slot, &d, 4);
+    };
+    fix_rip(rip_slots[0], rip_slots[0] + 4);
+    fix_rip(rip_slots[1], rip_slots[1] + 4);
+    fix_rip(rip_slots[2], rip_slots[2] + 4);
+    fix_rip(rip_slots[3], rip_slots[3] + 4);
+    return k;
+}
+
+// Legacy flat-baseline synthesis (M4-P2e), kept for A/B via
+// EU4CJK_CTSINGLE=flat: synthesize cos=-1,sin=0 around avg with K=4.9.
+size_t build_ct_single_stub_flat(uint8_t* out, size_t cap, uintptr_t resume)
+{
+    size_t k = emit_single_detect(out, cap);
+    if (!k) return 0;
+    auto put = [&](std::initializer_list<uint8_t> bs) {
+        for (uint8_t b : bs) out[k++] = b;
+    };
+    auto mov_r11 = [&](uintptr_t v) {
+        put({0x49, 0xBB});
+        std::memcpy(out + k, &v, 8);
+        k += 8;
+    };
+    const size_t apply_at = k;
     put({0xF2, 0x0F, 0x10, 0x0D, 0x4A, 0x00, 0x00, 0x00}); // movsd K(%rip),%xmm1
     put({0x66, 0x0F, 0x28, 0xC2});                    // movapd %xmm2,%xmm0
     put({0xF2, 0x0F, 0x5C, 0xC1});                    // subsd %xmm1,%xmm0
@@ -231,12 +371,15 @@ size_t build_ct_single_stub(uint8_t* out, size_t cap, uintptr_t resume)
     put({0x66, 0x0F, 0x28, 0xC2});                    // movapd %xmm2,%xmm0
     put({0xF2, 0x0F, 0x58, 0x05, 0x1C, 0x00, 0x00, 0x00}); // addsd K(%rip),%xmm0
     put({0xF2, 0x0F, 0x11, 0x85, 0x28, 0xFF, 0xFF, 0xFF}); // movsd %xmm0,-0xd8(%rbp)
+    const size_t replay_at = k;
     put({0x4C, 0x8B, 0xB5, 0x28, 0xFF, 0xFF, 0xFF});  // replay: mov -0xd8(%rbp),%r14
     mov_r11(resume);
     put({0x41, 0xFF, 0xE3});                          // jmp *%r11
+    if (cap < k + 8) return 0;
     const double kval = 4.9;                          // K: half glyph advance
     std::memcpy(out + k, &kval, 8);
     k += 8;
+    patch_detect_jumps(out, apply_at, replay_at);
     return k;
 }
 
@@ -246,8 +389,17 @@ bool install_ct_single_fix()
     constexpr uintptr_t kResume = 0x1b5ef3d;  // movaps -0x70(%rbp),%xmm0
     static const uint8_t orig[7] = { 0x4C, 0x8B, 0xB5, 0x28, 0xFF, 0xFF, 0xFF };
 
-    uint8_t s[160];
-    const size_t len = build_ct_single_stub(s, sizeof(s), kResume);
+    bool flat = false;
+    if (const char* e = std::getenv("EU4CJK_CTSINGLE")) {
+        if (std::strcmp(e, "off") == 0) {
+            log_line("[eu4cjk] ct-single: disabled via EU4CJK_CTSINGLE=off\n");
+            return true;
+        }
+        flat = std::strcmp(e, "flat") == 0;
+    }
+    uint8_t s[384];
+    const size_t len = flat ? build_ct_single_stub_flat(s, sizeof(s), kResume)
+                            : build_ct_single_stub(s, sizeof(s), kResume);
     if (!len) {
         log_line("[eu4cjk] ct-single: builder overflow\n");
         return true;   // degrade: single-char names stay invisible
@@ -258,8 +410,9 @@ bool install_ct_single_fix()
                  reinterpret_cast<void*>(stub));
         return true;
     }
-    log_line("[eu4cjk] ct-single: stub @ 0x%lx (site 0x%lx)\n",
-             static_cast<unsigned long>(stub), static_cast<unsigned long>(kSite));
+    log_line("[eu4cjk] ct-single: stub @ 0x%lx (site 0x%lx, mode=%s)\n",
+             static_cast<unsigned long>(stub), static_cast<unsigned long>(kSite),
+             flat ? "flat" : "win-zero");
     return true;
 }
 } // namespace

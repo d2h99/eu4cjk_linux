@@ -153,7 +153,7 @@ cat ~/.local/share/eu4cjk/eu4cjk.log 2>/dev/null || cat /tmp/eu4cjk.log | grep -
 正常应看到三行关键输出：
 
 ```
-[eu4cjk 1.0.0-M5 | build ...] loaded pid=...
+[eu4cjk 1.1.0-M6 | build ...] loaded pid=...
 [eu4cjk] sha256 self-check: MATCH (expect Steam buildid 15918133)
 [eu4cjk] render: mode=full installed
 ```

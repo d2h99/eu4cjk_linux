@@ -57,7 +57,7 @@ endif()
 string(TIMESTAMP EU4CJK_BUILD_TIME "%Y-%m-%d %H:%M:%S")
 
 target_compile_definitions(eu4cjk PRIVATE
-    EU4CJK_VERSION="1.0.0-M5"
+    EU4CJK_VERSION="1.1.0-M6"
     EU4CJK_BUILD_STAMP="${EU4CJK_GIT_ID} ${EU4CJK_BUILD_TIME}"
 )
 

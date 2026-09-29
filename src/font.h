@@ -17,6 +17,11 @@ extern "C" int eu4cjk_glyph_gate(const GateArgs* a);
 
 bool install_glyph_gate();
 
+// CTextureHandler::LoadTexture drops texture files >= 16 MiB silently;
+// the stock eu4_chinese map-font atlas (49 MB DXT5) trips it and map
+// labels render as white boxes. Raises the cap to 64 MiB.
+bool install_texture_size_cap_fix();
+
 // Global totals across all per-font external tables.
 uint32_t stored_count();
 uint32_t duplicate_count();
